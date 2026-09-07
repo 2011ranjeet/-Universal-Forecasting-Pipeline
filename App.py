@@ -11,12 +11,13 @@ from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 import xgboost as xgb
 import lightgbm as lgb
-from statsmodels.tsa.arima.model import ARIMA
-from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 import warnings
 import os
 import psutil
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+warnings.filterwarnings('ignore')
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 warnings.filterwarnings('ignore')
@@ -112,8 +113,9 @@ def generate_sample_data():
     return pd.DataFrame(data)
 
 
+@st.cache_data(show_spinner=False)
 def preprocess_data(df, date_col, target_col):
-    """Preprocess the data for modeling"""
+    """Preprocess the data for modeling (cached for speed)"""
     df = df.copy()
 
     # Safe date parsing with error handling
@@ -489,7 +491,7 @@ def train_ml_models(X_train, y_train, X_test, y_test, use_cv=False, use_tuning=F
                 study = optuna.create_study(direction='minimize')
                 study.optimize(
                     create_objective(name, X_train, y_train, tscv if use_cv else None),
-                    n_trials=20,
+                    n_trials=10,
                     show_progress_bar=False
                 )
                 best_params = study.best_params
@@ -1001,18 +1003,18 @@ def train_time_series_models(train_data, test_data, date_col, target_col):
     try:
         from pmdarima import auto_arima
 
-        st.text("Finding optimal ARIMA parameters using ACF/PACF analysis...")
+        st.text("Finding optimal ARIMA parameters...")
         arima_model = auto_arima(
             train_series,
-            start_p=0, max_p=5,
-            start_q=0, max_q=5,
-            d=None,  # Auto-detect differencing using ADF test
+            start_p=0, max_p=3,
+            start_q=0, max_q=3,
+            d=None,
             seasonal=False,
             trace=False,
             error_action='ignore',
             suppress_warnings=True,
             stepwise=True,
-            information_criterion='aic'
+            n_fits=10  # Limit number of fits for speed
         )
 
         arima_order = arima_model.order
@@ -1047,22 +1049,22 @@ def train_time_series_models(train_data, test_data, date_col, target_col):
     try:
         from pmdarima import auto_arima
 
-        st.text("Finding optimal SARIMA parameters using ACF/PACF analysis...")
+        st.text("Finding optimal SARIMA parameters...")
         sarima_model = auto_arima(
             train_series,
-            start_p=0, max_p=3,
-            start_q=0, max_q=3,
-            d=None,  # Auto-detect differencing
+            start_p=0, max_p=2,
+            start_q=0, max_q=2,
+            d=None,
             seasonal=True,
-            m=7,  # Weekly seasonality (can be made dynamic based on data)
-            start_P=0, max_P=2,
-            start_Q=0, max_Q=2,
-            D=None,  # Auto-detect seasonal differencing
+            m=7,
+            start_P=0, max_P=1,
+            start_Q=0, max_Q=1,
+            D=None,
             trace=False,
             error_action='ignore',
             suppress_warnings=True,
             stepwise=True,
-            information_criterion='aic'
+            n_fits=15  # Limit fits for speed
         )
 
         sarima_order = sarima_model.order
